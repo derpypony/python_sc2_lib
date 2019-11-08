@@ -22,6 +22,9 @@ async def build(self, building=None, townhall=None, position=None, max_distance=
             townhall = self.townhalls.random if not townhall and self.townhalls else townhall
             position = await desired_pylon_location(self, townhall=townhall, max_distance=max_distance, in_mineral=in_mineral, distance_to_other_pylon=distance_to_other_pylon) if townhall else None
             await build_subroutine(self, building, position) if position else None
+        elif building == ASSIMILATOR:
+            townhall = self.townhalls.random if not townhall and self.townhalls else townhall
+            await build_assimilators(self, townhall) if townhall else None
         else:
             townhall = self.townhalls.random if not townhall and self.townhalls else townhall
             position = await desired_location(self, building=building, townhall=townhall, max_distance=max_distance, in_mineral=in_mineral) if townhall else None
@@ -39,6 +42,15 @@ async def build_subroutine(self, building, position):
     if self.can_afford(building) and self.workers:
         worker = self.workers.closest_to(position)
         await self.do(worker.build(building, position))
+
+"""This function is used as a subroutine of main function build"""
+async def build_assimilators(self, townhall):
+    vespene_geysers = self.state.vespene_geyser.closer_than(RADIUS, townhall).filter(lambda u: u.vespene_contents > 0).filter(lambda u: can_build_on_vespene(self, u))
+    await build_subroutine(self, ASSIMILATOR, vespene_geysers.random) if vespene_geysers else None
+
+"""This function is used as a subroutine of function build_assimilators"""
+def can_build_on_vespene(self, vespene_geyser):
+    return False if self.units.of_type({ASSIMILATOR}).filter(lambda u: u.position == vespene_geyser.position) else True
 
 """This function will find desired location for building near the townhall"""
 async def desired_location(self, building, townhall, max_distance=15, in_mineral=False):
