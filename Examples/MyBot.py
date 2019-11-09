@@ -1,4 +1,4 @@
-from sc2_lib.distribute_worker import distribute_workers
+from sc2_lib.distribute_workers import distribute_workers
 from sc2_lib.build import build
 import sc2
 from sc2 import Race, Difficulty
