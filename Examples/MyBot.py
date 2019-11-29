@@ -1,12 +1,14 @@
-from sc2_lib.distribute_workers import distribute_workers
+from sc2_lib.distribute_worker import distribute_workers
 from sc2_lib.build import build
+from sc2_lib.offence_and_defence import smart_defence, smart_offence
 import sc2
 from sc2 import Race, Difficulty
 from sc2.constants import *
-from sc2.player import Bot, Computer
+from sc2.player import Bot, Computer, Human
+import random
+
 RADIUS = 10
 
-"""This bot will only have three bases"""
 class Sentbot(sc2.BotAI):
     def on_start(self):
         self.cybercore_boost = False
@@ -18,7 +20,12 @@ class Sentbot(sc2.BotAI):
         self.forge = 0
         self.cybercore_unlock = False
         self.warpgate_reserch_unlock = False
-        self.weapon_or_armor_unlock = False
+        self.forge_unlock = False
+        self.army = {ZEALOT: 0, STALKER: 0}
+        self.attack_signal = False
+        possible_enemy_base_location = list(self.expansion_locations)
+        possible_enemy_base_location.sort(key=lambda u: u.distance_to(self.enemy_start_locations[0]))
+        self.possible_enemy_base_location = possible_enemy_base_location[0:2]
 
     async def on_building_construction_started(self, unit):
         if unit.type_id == ASSIMILATOR:
@@ -33,7 +40,14 @@ class Sentbot(sc2.BotAI):
         if unit.type_id == CYBERNETICSCORE:
             self.warpgate_reserch_unlock = True
         if unit.type_id == FORGE:
-            self.weapon_or_armor_unlock = True
+            self.forge_unlock = True
+
+    async def on_unit_created(self, unit):
+        if unit.type_id in {ZEALOT, STALKER}:
+            townhall = self.townhalls.sorted(lambda u: u.distance_to(self.enemy_start_locations[0]))[0]
+            await self.do(unit(RALLY_UNITS, townhall.position))
+            self.army[unit.type_id] += 1
+
 
     async def on_step(self, iteration):
         await distribute_workers(self, iteration)
@@ -46,10 +60,14 @@ class Sentbot(sc2.BotAI):
         await self.build_forge() if iteration % 11 == 10 else None
         await self.upgrade_warp_gate() if iteration % 19 == 0 else None
         await self.choron_boost_cybercore() if iteration % 19 == 4 else None
-        await self.upgrade_armor() if iteration % 19 == 8 else None
-        await self.upgrade_weapon() if iteration % 19 == 12 else None
-        await self.choron_boost_weapon_and_armor() if iteration % 19 == 16 else None
+        await self.forge_level_1_upgrade() if iteration % 19 == 10 else None
+        await self.choron_boost_forge() if iteration % 19 == 16 else None
         await self.expand() if iteration % 23 == 5 else None
+        await self.build_army() if iteration % 7 == 0 else None
+        await smart_defence(self, [[ZEALOT, 3], [STALKER, 1]], iteration)
+        await smart_offence(self, [[ZEALOT, 20], [STALKER, 8]], iteration, self.attack_signal)
+        if sum([len(u.current) for u in self.offence_army_info_list]) > 20:
+            self.attack_signal = True
 
     async def keep_state(self):
         self.pylon = self.units.of_type({PYLON}).amount
@@ -58,13 +76,15 @@ class Sentbot(sc2.BotAI):
         self.gateway = self.units.of_type({GATEWAY, WARPGATE}).amount
         self.cybercore = self.units.of_type({CYBERNETICSCORE}).amount
         self.forge = self.units.of_type({FORGE}).amount
+        self.army[ZEALOT] = self.units.of_type({ZEALOT}).amount
+        self.army[STALKER] = self.units.of_type({STALKER}).amount
 
     async def build_workers(self):
         if self.base == 1 and self.workers.amount < 19:
             await self.do(self.townhalls.ready.idle.random.train(PROBE)) if self.townhalls.ready.idle and self.can_afford(PROBE) else None
         elif self.base == 2 and self.workers.amount < 35:
             await self.do(self.townhalls.ready.idle.random.train(PROBE)) if self.townhalls.ready.idle and self.can_afford(PROBE) else None
-        elif self.base == 3 and self.workers.amount < 50:
+        elif self.base > 2 and self.workers.amount < 60:
             await self.do(self.townhalls.ready.idle.random.train(PROBE)) if self.townhalls.ready.idle and self.can_afford(PROBE) else None
 
     async def build_pylon(self):
@@ -81,11 +101,15 @@ class Sentbot(sc2.BotAI):
             await build(self, ASSIMILATOR)
         elif self.base == 3 and self.assimilator == 1 and not self.already_pending(ASSIMILATOR):
             await build(self, ASSIMILATOR)
+        elif self.base > 4 and not self.already_pending(ASSIMILATOR) and self.assimilator < 4:
+            await build(self, ASSIMILATOR)
 
     async def build_gateway(self):
         if self.gateway == 0 and self.pylon > 0:
             await build(self, GATEWAY)
-        elif self.base == 2 and self.gateway < 4 and self.cybercore == 1:
+        elif self.base == 2 and self.gateway < 3 and self.cybercore == 1:
+            await build(self, GATEWAY)
+        elif self.base > 3 and self.gateway < 5 and self.cybercore == 1:
             await build(self, GATEWAY)
 
     async def expand(self):
@@ -93,6 +117,9 @@ class Sentbot(sc2.BotAI):
             await build(self, NEXUS)
         elif self.base == 2 and self.workers.amount > 35 and not self.already_pending(NEXUS):
             await build(self, NEXUS)
+        elif self.base >= 3 and self.workers.idle.amount > 9 and not self.already_pending(NEXUS):
+            await build(self, NEXUS)
+
 
     async def build_cybercore(self):
         if self.cybercore_unlock and not self.already_pending(CYBERNETICSCORE) and self.cybercore == 0:
@@ -118,21 +145,23 @@ class Sentbot(sc2.BotAI):
                     await self.do(townhall(EFFECT_CHRONOBOOSTENERGYCOST, cybercore))
                     break
 
-    async def upgrade_armor(self):
-        if self.weapon_or_armor_unlock:
+    async def forge_level_1_upgrade(self):
+        upgrade = {FORGERESEARCH_PROTOSSGROUNDARMORLEVEL1: PROTOSSGROUNDARMORSLEVEL1,
+                    FORGERESEARCH_PROTOSSGROUNDWEAPONSLEVEL1: PROTOSSGROUNDWEAPONSLEVEL1,
+                    FORGERESEARCH_PROTOSSSHIELDSLEVEL1: PROTOSSSHIELDSLEVEL1}
+        if self.forge_unlock:
             forges = self.units.of_type({FORGE}).ready.idle
-            if forges and not self.already_pending_upgrade(PROTOSSGROUNDARMORSLEVEL1) and self.can_afford(PROTOSSGROUNDARMORSLEVEL1):
-                await self.do(forges.random(FORGERESEARCH_PROTOSSGROUNDARMORLEVEL1))
-
-    async def upgrade_weapon(self):
-        if self.weapon_or_armor_unlock:
-            forges = self.units.of_type({FORGE}).ready.idle
-            if forges and not self.already_pending_upgrade(PROTOSSGROUNDWEAPONSLEVEL1) and self.can_afford(PROTOSSGROUNDWEAPONSLEVEL1):
-                await self.do(forges.random(FORGERESEARCH_PROTOSSGROUNDWEAPONSLEVEL1))
+            if forges:
+                forge = forges.random
+                abilities = await self.get_available_abilities(forge)
+                if abilities:
+                    ability = random.choice(abilities)
+                    if self.can_afford(upgrade[ability]) and not self.already_pending_upgrade(upgrade[ability]):
+                        await self.do(forges.random(ability))
 
     # Ground weapons and ground armor have low priority
-    async def choron_boost_weapon_and_armor(self):
-        if self.already_pending_upgrade(WARPGATERESEARCH) > 0.9 and self.weapon_or_armor_unlock:
+    async def choron_boost_forge(self):
+        if self.already_pending_upgrade(WARPGATERESEARCH) > 0.9 and self.forge_unlock:
             forges = self.units.of_type({FORGE}).ready.filter(lambda u: not u.is_idle)
             forge = forges.random if forges else None
             progress = forge.orders[0].progress if forge and forge.orders else 0
@@ -143,7 +172,25 @@ class Sentbot(sc2.BotAI):
                         await self.do(townhall(EFFECT_CHRONOBOOSTENERGYCOST, forge))
                         break
 
+    async def build_army(self):
+        if self.units(WARPGATE).ready.idle.exists and self.army[ZEALOT] + self.army[STALKER] < 50:
+            warpgate = self.units(WARPGATE).ready.idle.random
+            pylon = self.units.of_type({PYLON}).random
+            abilities = await self.get_available_abilities(warpgate)
+            if random.random() < 0.75:
+                position = await self.find_placement(WARPGATETRAIN_ZEALOT , pylon.position)
+                if warpgate and WARPGATETRAIN_ZEALOT in abilities and self.can_afford(ZEALOT):
+                    await self.do(warpgate.warp_in(ZEALOT, position))
+            else:
+                position = await self.find_placement(WARPGATETRAIN_STALKER , pylon.position)
+                if warpgate and WARPGATETRAIN_STALKER in abilities and self.can_afford(STALKER):
+                    await self.do(warpgate.warp_in(STALKER, position))
+
+
 sc2.run_game(sc2.maps.get("AbyssalReefLE"), [
     Bot(Race.Protoss, Sentbot(), name="Twilight Sparkle"),
-    Computer(Race.Protoss, Difficulty.Easy)
-], realtime=True)
+    Computer(Race.Protoss, Difficulty.Medium)
+        ], realtime=False)
+    # Human(Race.Protoss)
+    # Bot(Race.Protoss, Sentbot(), name="Twilight Sparkle")
+    # Computer(Race.Protoss, Difficulty.Medium)
