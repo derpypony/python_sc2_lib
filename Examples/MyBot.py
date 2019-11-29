@@ -9,7 +9,7 @@ import random
 
 RADIUS = 10
 
-class Sentbot(sc2.BotAI):
+class Sentdebot(sc2.BotAI):
     def on_start(self):
         self.cybercore_boost = False
         self.assimilator = 0
@@ -188,7 +188,7 @@ class Sentbot(sc2.BotAI):
 
 
 sc2.run_game(sc2.maps.get("AbyssalReefLE"), [
-    Bot(Race.Protoss, Sentbot(), name="Twilight Sparkle"),
+    Bot(Race.Protoss, Sentdebot(), name="Twilight Sparkle"),
     Computer(Race.Protoss, Difficulty.Medium)
         ], realtime=False)
     # Human(Race.Protoss)
