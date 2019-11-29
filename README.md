@@ -10,3 +10,6 @@ pip3 install -e git+https://github.com/derpypony/sc2_lib.git#egg=sc2_lib
 to install this library.
 
 The main functions in this library include [distribute_workers](sc2_lib/distribute_workers.py#L13) from distribute_workers.py, which is used to replace the original [distribute_workers](https://github.com/Dentosal/python-sc2/blob/84b1231eab91320204c146bd5682bb2a1b5f23cf/sc2/bot_ai.py#L293) in BotAI class, [build](sc2_lib/build.py#L16) from build.py which is a replacement for the [build](https://github.com/Dentosal/python-sc2/blob/84b1231eab91320204c146bd5682bb2a1b5f23cf/sc2/bot_ai.py#L642) from the BotAI class.
+
+
+Please note that hard logic can only get me so far, and commanding army to attack and defence is a huge issue, they can not be perfectly solved based purely on hard logic, deep learning methods need to be employed.
