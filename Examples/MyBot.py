@@ -191,6 +191,3 @@ sc2.run_game(sc2.maps.get("AbyssalReefLE"), [
     Bot(Race.Protoss, Sentdebot(), name="Twilight Sparkle"),
     Computer(Race.Protoss, Difficulty.Medium)
         ], realtime=False)
-    # Human(Race.Protoss)
-    # Bot(Race.Protoss, Sentbot(), name="Twilight Sparkle")
-    # Computer(Race.Protoss, Difficulty.Medium)
